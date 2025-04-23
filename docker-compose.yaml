@@ -1,0 +1,104 @@
+services:
+  sp-postgres:
+    image: postgres:16.1
+    environment:
+      POSTGRES_DB: sp-keycloak-db
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    shm_size: 512mb
+
+  idp-postgres:
+    image: postgres:16.1
+    environment:
+      POSTGRES_DB: idp-keycloak-db
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+    shm_size: 512mb
+
+  sp-keycloak:
+    image: quay.io/keycloak/keycloak:23.0.1
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    #    command: '-v start-dev --import-realm --optimized'
+    command: 'start-dev --import-realm --http-relative-path /sp-auth --db postgres --db-username root --db-password root --db-url jdbc:postgresql://sp-postgres:5432/sp-keycloak-db --health-enabled true --http-enabled true --proxy=edge --hostname-strict=false --hostname-strict-https=false --hostname-url=http://localhost/sp-auth/ --hostname-admin-url=http://localhost/sp-auth/'
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KEYCLOAK_IMPORT="/opt/jboss/keycloak/imports/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled"
+    volumes:
+      - ./config/service-provider/sp-realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "9000:8080"
+
+  idp-keycloak:
+    image: quay.io/keycloak/keycloak:23.0.1
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    command: 'start-dev --import-realm --http-relative-path /idp-auth --db postgres --db-username root --db-password root --db-url jdbc:postgresql://idp-postgres:5432/idp-keycloak-db --health-enabled true --http-enabled true --proxy=edge --hostname-strict=false --hostname-strict-https=false --hostname-url=http://localhost/idp-auth/ --hostname-admin-url=http://localhost/idp-auth/'
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KEYCLOAK_IMPORT="/opt/jboss/keycloak/imports/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled"
+    volumes:
+      - ./config/identity-provider/idp-realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "9001:8080"
+
+  sp-service:
+    build:
+      context: .
+      dockerfile: ./config/service-provider/Dockerfile
+    volumes:
+      - ./config/service-provider/static:/app
+      - ./config/service-provider/sp_server.py:/home/sp_server.py
+    ports:
+      - "8085:8085"
+
+  idp-service:
+    image: python:3.9-slim
+    working_dir: /app
+    volumes:
+      - ./config/identity-provider/static:/app
+    ports:
+      - "8086:8086"
+    command: python -m http.server 8086 --bind 0.0.0.0
+
+  nginx:
+    image: nginx
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./config/404.html:/usr/share/nginx/html/404.html:ro
+    ports:
+      - "80:80"
+      - "8999:8999"
+    environment:
+      - NGINX_HOST=localhost
+      - NGINX_PORT=80
+    healthcheck:
+      test: [ "CMD", "curl", "-I", "-XGET", "http://localhost" ]
+      interval: 10s
+      timeout: 10s
+      retries: 300
+    restart: on-failure
+
+  # set up a dummy mailbox with a web interface for accessing emails during development.
+  mailbox:
+    container_name: mailbox
+    image: axllent/mailpit
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    environment:
+#      MP_MAX_MESSAGES: 5000
+#      MP_DATABASE: /data/mailpit.db
+      MP_WEBROOT: /mailbox
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    restart: unless-stopped
+
+volumes:
+  postgres:
