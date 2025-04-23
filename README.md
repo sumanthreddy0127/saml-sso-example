@@ -1,4 +1,4 @@
-# Keycloak SAML 2.0 SSO Demo
+# SAML 2.0 SSO Demo
 
 The primary goal of this project is to establish SAML authentication system using Keycloak. This will involve
 configuring two Keycloak instances: one as the Identity Provider (IdP) and the other as the Service Provider (SP).
